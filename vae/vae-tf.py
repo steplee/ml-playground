@@ -3,65 +3,23 @@ import numpy as np
 import sys,random
 import matplotlib.pyplot as plt
 
-# Data
-#from tensorflow.examples.tutorials.mnist import input_data
+import text_data
 
-CHAR_SIZE = 56
-#IM_SIZE = [28,28,1]
+
+CHAR_SIZE = 80
 IM_SIZE = [CHAR_SIZE,CHAR_SIZE,1]
-lr = .0003
-CLASSES = 10
-BATCH_SZ = 24
 LATENT_DIMS = 49
 
-import matplotlib.font_manager as mfm
+lr = .003
+CLASSES = 10 # # of chars
 
-font_path = "/data/SourceHanSerif-Regular.otf"
-prop = mfm.FontProperties(fname=font_path)
+BATCH_SZ = 24
+DEFAULT_BATCHES = 5000 # train loops
 
-# Returns a batch sampler function
-def gen_char_gen(n=50, size=CHAR_SIZE):
+debug_print = False
+show_every = -1
 
-    start = 20272
-    chars = [str(chr(q)) for q in range(start,start+n)]
-
-    ims = np.zeros([n,size,size,1])
-    inset = .1
-    #font_range = (9,13+1)
-    #font_range = (2,3)
-    font_range = (120,200)
-    char_w = (.2,.3)
-
-    fig = plt.figure(figsize=(4,4), dpi=size/4)
-
-    for i in range(n):
-        s = np.random.randint(*font_range)
-        zz = s/font_range[1]*char_w[1] + (1-s/font_range[1])*char_w[0]
-        x = np.random.uniform(0,1-zz)
-        y = np.random.uniform(0,1-zz)
-        plt.text(x,y,chars[i], fontsize=s, fontproperties=prop)
-        fig.canvas.draw()
-        #print(np.array(fig.canvas.renderer._renderer).shape)
-        im = np.array(fig.canvas.renderer._renderer)[...,0:1]
-        ims[i] = (im.max() - im) / im.max()
-        fig.clear()
-
-    plt.close(fig)
-    del fig
-
-    def gene(batch_size):
-        inds = np.random.choice((range(n)), batch_size)
-        x = ims[inds]
-        #f,a=plt.subplots(figsize=(5,5))
-        #a.imshow(x[0,...,0])
-        #plt.show()
-        return x,inds
-
-    return gene
-
-# --------------------------------------------------------------------------
-
-def mk_ae_net():
+def mk_vae_net():
     x = tf.placeholder(tf.float32, shape=[None,*IM_SIZE])
 
     # Conv (encoder)
@@ -69,7 +27,7 @@ def mk_ae_net():
     net = tf.layers.max_pooling2d(net, 2,2)
     net = tf.layers.conv2d(net, 8, 3, padding='same', activation=tf.nn.relu)
     net = tf.layers.max_pooling2d(net, 2,2)
-    net = tf.layers.batch_normalization(net)
+    #net = tf.layers.batch_normalization(net)
 
     # FC 
     sz = net.shape[1]*net.shape[2]*net.shape[3]
@@ -78,69 +36,52 @@ def mk_ae_net():
     # Reparameterization:
     #   z = m + s*epsilon
     mu  = tf.layers.dense(net, LATENT_DIMS, name='mu_op', use_bias=False)
-    sig = tf.layers.dense(net, LATENT_DIMS, name='sig_op', use_bias=False, activation=tf.nn.relu)
-    sig += tf.ones(LATENT_DIMS) * .1
-    mu  = tf.identity(mu, name='mu')
-    sig = tf.identity(sig, name='sig')
+    sig = tf.layers.dense(net, LATENT_DIMS, name='sig_op', activation=tf.nn.softplus) + 1e-4
     eps = tf.random_normal(shape=[LATENT_DIMS], name='eps')
     z = tf.add(mu, sig * eps, name='z_op')
-    z = tf.identity(z,name='z')
 
     # Deconv (decoder)
     net = tf.layers.dense(z, sz)
     net = tf.reshape(net, [BATCH_SZ, IM_SIZE[0]//4,IM_SIZE[1]//4,8])
     net = tf.layers.conv2d_transpose(net, 16, 4, strides=2, padding='same', activation=tf.nn.relu)
     net = tf.layers.conv2d_transpose(net, 4, 4, strides=2, padding='same', activation=tf.nn.relu)
-    net = tf.layers.conv2d(net, 1, 1, padding='same', activation=tf.nn.relu)
+    net = tf.layers.conv2d(net, 1, 1, padding='same', activation=tf.nn.sigmoid)
+    net = tf.clip_by_value(net, 1e-6,1-1e-6)
 
-    return x,z,net
 
-def mk_loss(xh, xt):
+    # Loss
+    # See Kingma thesis for derivation. It is pretty simple so long as sigma is diagonal.
+    #
     # log p = E[ logp(x,z) - logq(z|x) ]   -   KL[q(z|x) | p(z|x)] 
-    #    ELBO __________________________
+    #    ELBO \_________________________/
 
-    z = tf.get_default_graph().get_tensor_by_name('z:0')
-    eps = tf.get_default_graph().get_tensor_by_name('eps:0')
-    sig = tf.get_default_graph().get_tensor_by_name('sig:0')
+    recons = tf.reduce_sum(x*tf.log(net) + (1-x)*tf.log(1-net),1)
+    recons = tf.reduce_mean(recons)
+    likeli = .5 * tf.reduce_mean(1. + tf.log(tf.square(sig)) - tf.square(mu) - tf.square(sig))
+    loss = - (likeli + recons)
 
-    d = LATENT_DIMS
-
-    # z ~ N(mu,sig)
-    log_pz = -1/(2*np.pi) - d - tf.reduce_sum(tf.square(eps))/2
-    log_qzx = log_pz - tf.reduce_sum(tf.log(sig))
-
-    # Recons score
-    #log_pzx = tf.losses.sigmoid_cross_entropy(xt>.5,xh)
-    recons_loss  = tf.losses.mean_squared_error(xt,xh)
-
-    # Negative loss because we are minizming w/ sgd (want to maxim)
-    loss0 = tf.reduce_sum(recons_loss)
-    loss1 = tf.reduce_mean(log_qzx) * .0000001
-    loss = loss0 + loss1
-
-    loss = tf.Print(loss,[loss0,loss1])
+    if debug_print:
+        loss = tf.Print(loss,[loss,sig])
 
     opt_op = tf.train.AdamOptimizer(lr).minimize(loss)
-    ret = tf.tuple([loss], control_inputs=[opt_op])
-    return ret
+    opt_loss = tf.tuple([loss], control_inputs=[opt_op]) # loss=opt
 
-def run(sess=None):
+    return x,z,net, opt_loss
+
+
+def run(sess=None, batches=DEFAULT_BATCHES):
     print(" - Start.")
-    sess = sess if sess else tf.InteractiveSession()
 
-    #mnist = input_data.read_data_sets("/data/mnist/", one_hot=True)
+    x_in,z,net,loss_train = mk_vae_net()
 
-    x_in,z,net = mk_ae_net()
-    loss_train = mk_loss(net, x_in)
-
+    sess = sess if sess else tf.Session(config=tf.ConfigProto(log_device_placement=True))
     sess.run(tf.global_variables_initializer())
 
-    char_gen = gen_char_gen(10)
+    # A function, call to get batch
+    char_gen = text_data.gen_char_gen(10, CHAR_SIZE)
 
-    # loop
-    for batch in range(660):
-        #bx,by = mnist.train.next_batch(BATCH_SZ)
-        #bx = bx.reshape([BATCH_SZ, 28,28, 1])
+    # Train loop
+    for batch in range(batches):
         bx,by = char_gen(BATCH_SZ)
 
         loss,xh = sess.run([loss_train,net], feed_dict={x_in:bx})
@@ -148,17 +89,16 @@ def run(sess=None):
 
         if batch % 10 == 0:
             print("%5d: %.3f"%(batch,loss))
-            '''
-            if batch % 200 == 0:
+            if show_every > 0 and batch % show_every == 0:
                 p0 = bx[0,:,:,0]
                 p1 = xh[0,:,:,0]
                 p = np.hstack([p0,p1])
                 plt.imshow(p,cmap='gray')
                 plt.show()
-                #print("\t{} -> {}".format(by[0].argmax(), yh[0].argmax()))
-            '''
 
-    print(" - Done.")
+    print(" - Done, creating interp.png")
+
+    ''' Create image showing interpolation in z-space '''
 
     N = BATCH_SZ
     ps = []
@@ -167,7 +107,7 @@ def run(sess=None):
         path = np.linspace(0,1,N)
         cs = [path[i]*a + (1-path[i])*b for i in range(N)]
 
-        xhs = list(sess.run([net], feed_dict={x_in:cs})[0][...,0])
+        xhs = list(sess.run([(net)], feed_dict={x_in:cs})[0][...,0])
 
         p = (np.hstack(xhs))
         p += np.min(p)
@@ -180,6 +120,10 @@ def run(sess=None):
     plt.imsave('interp.png',pp,cmap='gray')
     plt.show()
 
-
 if __name__=='__main__' and 'run' in sys.argv:
-    run()
+    try:
+        batches = int(sys.argv[-1]) # user can provide training loops as last arg
+    except:
+        batches = DEFAULT_BATCHES
+
+    run(batches=batches)

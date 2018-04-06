@@ -13,13 +13,19 @@ try:
 except:
     __mnist = input_data.read_data_sets("/data/mnist/", one_hot=True)
 
+D = 784
+mask1 = np.random.choice(range(D), D//2)
+mask1 = np.array([1. if o else 0 for o in mask1])
+mask2 = np.random.choice(range(D), D//2)
+mask2 = np.array([1. if o else 0 for o in mask1])
+
 
 
 # Additive coupling layers
 # x is batched vector
 # :m is forward function
 # :mode is either `forward` or `reverse`
-def additive_couple(x, m, mode='forward'):
+def additive_couple(x, m, mask, mode='forward'):
     B = x.shape[0] # batch size
     D = x.shape[1] # dimensionality
     d = x.shape[1]//2
@@ -50,7 +56,6 @@ def nice(batch_size=10):
     mnist = __mnist
     batches = 600
 
-    D = 784
     theta = (np.random.normal(size=(D//2,D//2)))  *.01
     theta2 = (np.random.normal(size=(D//2,D//2))) *.01
     def my_m(x):

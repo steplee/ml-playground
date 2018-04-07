@@ -16,21 +16,16 @@ def gen_char_gen(n, size):
     chars = [str(chr(q)) for q in range(start,start+n)]
 
     ims = np.zeros([n,size,size,1])
-    inset = .1
-    #font_range = (9,13+1)
-    #font_range = (2,3)
-    font_range = (120,200)
-    char_w = (.2,.3)
+    font_size = 130
 
+    plt.xticks([])
+    plt.yticks([])
+    plt.axis('off')
     fig = plt.figure(figsize=(4,4), dpi=size/4)
 
     for i in range(n):
-        s = np.random.randint(*font_range)
-        zz = s/font_range[1]*char_w[1] + (1-s/font_range[1])*char_w[0]
-        x = np.random.uniform(0,1-zz)
-        y = np.random.uniform(0,1-zz)
-        #plt.text(x,y,chars[i], fontsize=s, fontproperties=prop)
-        plt.annotate(chars[i], [x,y], fontsize=s, fontproperties=prop)
+        plt.axis('off')
+        plt.annotate(chars[i], [.5,.5], fontsize=font_size, fontproperties=prop,va='center',ha='center')
         fig.canvas.draw()
         #print(np.array(fig.canvas.renderer._renderer).shape)
         im = np.array(fig.canvas.renderer._renderer)[...,1:2]
@@ -51,3 +46,15 @@ def gen_char_gen(n, size):
         return x,inds
 
     return gene
+
+def test(n=100):
+    gen = gen_char_gen(n, 100)
+    bx,by = gen(5)
+
+    p = np.hstack(list(bx[...,0]))
+
+    plt.imshow(p,cmap='gray')
+    plt.show()
+
+if __name__=='__main__' and 'test_text' in sys.argv:
+    test()

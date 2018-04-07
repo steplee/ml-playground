@@ -124,8 +124,6 @@ def nice(batch_size=10):
 
 
 if __name__=='__main__' and 'run' in sys.argv:
-    #nice()
+    nice()
 
-    import tangent
-    print(tangent.grad(additive_couple))
 

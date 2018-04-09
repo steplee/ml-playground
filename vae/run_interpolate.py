@@ -1,9 +1,11 @@
 import tensorflow as tf
 import numpy as np
-import sys,random
+import sys,random,os
 import matplotlib.pyplot as plt
 
 import text_data
+
+import pdb
 
 
 import vae
@@ -33,57 +35,69 @@ flags = tf.app.flags.FLAGS
 #                      RUNNER
 # -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -
 
+def test_saved_vae(name=flags.name):
+    save_dir = os.path.join('saves',name)
+
+    with tf.Session() as sess:
+        ret = tf.saved_model.loader.load(sess, [tag_constants.TRAINING], name)
+
+        print(ret)
+
+
+
 def test_vae(sess=None):
     print(" - Start.")
 
-    net = vae.vae_cnn(in_size=[char_size,char_size,1], latent_size=the_latent_size, batch_size=batch_size)
+    im_size = [char_size,char_size,1]
 
     sess = sess if sess else tf.Session()
     sess.run(tf.global_variables_initializer())
 
-    # A function, call to get batch
-    char_gen = text_data.gen_char_gen(classes, char_size)
+    dset = text_data.gen_dataset(classes, char_size, batch_size)
+    diter = dset.make_one_shot_iterator()
+    dnext = diter.get_next()
 
-    # Train loop
-    for batch in range(flags.batches):
-        bx,by = char_gen(batch_size)
+    name = flags.name
 
-        loss,xh = sess.run([net.opt_loss_given_x, net.decode_given_x], feed_dict={net.x_in:bx})
-        loss = loss[0]
-
-        if batch % 10 == 0:
-            print("%5d: %.3f"%(batch,loss))
-            if show_every > 0 and batch % show_every == 0:
-                p0 = bx[0,:,:,0]
-                p1 = xh[0,:,:,0]
-                p = np.hstack([p0,p1])
-                plt.imshow(p,cmap='gray')
-                plt.show()
+    save_dir = os.path.join('saves', name)
+    net = tf.saved_model.loader.load(sess, [tf.saved_model.tag_constants.SERVING],  save_dir)
 
 
+    x_in = tf.get_default_graph().get_tensor_by_name('x_in:0')
+    z_in = tf.get_default_graph().get_tensor_by_name('z_in:0')
+    encode_given_x = tf.get_default_graph().get_tensor_by_name('encode_given_x:0')
+    decode_given_z = tf.get_default_graph().get_tensor_by_name('decode_given_z:0')
+    decode_given_x = tf.get_default_graph().get_tensor_by_name('decode_given_x:0')
+    loss_given_x = tf.get_default_graph().get_tensor_by_name('loss_given_x:0')
+    opt_loss_given_x = tf.get_default_graph().get_tensor_by_name('opt_loss_given_x:0')
 
     ''' 
     Create image showing interpolation in z-space
         The top half will be an interpolated line from two actual values.
         The bottom half will be a real point progressively going further away.
     '''
+
     N = batch_size
+    bx = text_data.gen_chars(N, char_size)
+
     ps = []
+
+    zs = sess.run(encode_given_x, feed_dict={x_in:bx})
+
+    # This could be completely batched, but speed isn't a problem rn
     for j in range(N-1):
-        a,b = bx[j],bx[j+1]
-        zs = sess.run(net.encode_given_x, feed_dict={net.x_in:bx})
         if j<=N//2:
-            za,zb = zs[0],zs[1]
+            za,zb = zs[j],zs[j+1]
             if j==N//2:
                 ps.append(np.ones_like(ps[-1])*.01) # put a break
         else:
-            r = np.random.uniform(size=zs[0].shape) * 5.0
-            za,zb = zs[0],zs[0] + r*r
+            r = np.random.uniform(size=zs[0].shape) * 3.0
+            za,zb = zs[j],zs[j] + r*r
 
         path = np.linspace(1,0,N)
         cs = [path[i]*za + (1-path[i])*zb for i in range(N)]
 
-        xhs = list(sess.run(net.decode_given_z, feed_dict={net.z_in:cs})[...,0])
+        xhs = list(sess.run(decode_given_z, feed_dict={z_in:cs})[...,0])
 
         p = (np.hstack(xhs))
         p -= np.min(p)
@@ -93,8 +107,8 @@ def test_vae(sess=None):
     pp = np.vstack(ps)
     plt.figure(figsize=(11,6))
     #plt.imshow(pp,cmap='gray')
-    plt.imsave('{}-interp.png'.format(flags.name),pp,cmap='gray')
-    print(" - Done, created {}-interp.png".format(flags.name))
+    plt.imsave('{}-interpolation.png'.format(flags.name),pp,cmap='gray')
+    print(" - Done, created {}-interpolation.png".format(flags.name))
 
 if __name__=='__main__' and 'run' in sys.argv:
     test_vae()

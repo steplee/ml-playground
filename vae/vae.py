@@ -1,16 +1,18 @@
 import tensorflow as tf
 import tensorflow.contrib as tfc
 import numpy as np
-import sys,random
+import sys,random,os
 
 '''
 VAE
 '''
 
 
+
 # -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  - 
 #                      MODEL 
 # -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  - 
+
 
 
 '''
@@ -20,50 +22,41 @@ Endpoints:
     decode_given_x
     loss_given_x
     opt_loss_given_x (which returns loss)
+
 '''
 class vae_cnn:
     def __init__(self,
-            in_size,
+            x_in,
             latent_size,
-            batch_size, # TODO remove this, it is currently needed for make_cropping
             conv_channels=[16,16],
             lr=.003,
-            crop=True,
-            debug_print=False
-            ):
+            debug_print=False,
+            name='vae'):
 
-        self.in_size = in_size
-        self.lr = lr
+        self.x_in = x_in
+        self.in_size = list(map(int,x_in.shape[1:]))
+        self.lr = tf.Variable(lr, trainable=False, name='lr')
         self.conv_channels = conv_channels
         self.latent_size = latent_size
         self.debug_print = debug_print
+        self.name = name
 
-        self.x_in = tf.placeholder(tf.float32, shape=[None,*in_size])
-        self.x = (self.make_cropping(self.x_in, batch_size) if crop else self.x_in)
+        #self.x_in = tf.placeholder(tf.float32, shape=[None,*in_size], name='x_in')
 
         # Use these to train and reconstruct, evaluates full model.
         self.encode_given_x, self.mu_x, self.sig_x, \
-                             self.conv_0_size         = self.make_encoder(self.x)
-        self.decode_given_x                           = self.make_decoder(self.encode_given_x)
-        self.loss_given_x,self.opt_loss_given_x  = self.make_loss(self.x, self.decode_given_x,
+                             self.conv_0_size         = self.make_encoder(self.x_in, name='encode_given_x')
+        self.decode_given_x                           = self.make_decoder(self.encode_given_x,name='decode_given_x')
+        self.loss_given_x,self.opt_loss_given_x  = self.make_loss(self.x_in, self.decode_given_x,
                                                                    self.mu_x, self.sig_x)
 
         # Use this to sample from  p(z | x), it evaluates the latter half of the model.
-        self.z_in = tf.placeholder(tf.float32, shape=[None,latent_size])
-        self.decode_given_z = self.make_decoder(self.z_in, reuse=True)
+        self.z_in = tf.placeholder(tf.float32, shape=[None,latent_size], name='z_in')
+        self.decode_given_z = self.make_decoder(self.z_in, reuse=True, name='decode_given_z')
 
 
-    def make_cropping(self, x, batch_size):
-        box = tf.concat([tf.random_uniform([2],.0,.2), tf.random_uniform([2],.7,1.1)], 0)
-        box = tf.expand_dims(box,0)
-        box = tf.tile(box, [batch_size,1])
-        binds = tf.constant(list(range(batch_size)))
-        x = tf.image.crop_and_resize(x, box, binds, (x.shape[1:3]))
-        x = tfc.image.rotate(x, tf.random_uniform([batch_size], -.5,.5))
-        x = tfc.image.translate(x, tf.random_uniform([batch_size,2], -20.,20.))
-        return x
 
-    def make_encoder(self, x, reuse=False):
+    def make_encoder(self, x, name, reuse=False):
         layers = self.conv_channels
         with tf.variable_scope('encoder',reuse=reuse):
             net = x 
@@ -81,9 +74,9 @@ class vae_cnn:
             eps = tf.random_normal(shape=[self.latent_size], name='eps')
             z   = tf.add(mu, sig * eps, name='z_op')
 
-        return z, mu,sig, conv_0_size
+        return tf.identity(z,name=name), mu,sig, conv_0_size
 
-    def make_decoder(self, z, reuse=False):
+    def make_decoder(self, z, name, reuse=False):
         layers = self.conv_channels
         with tf.variable_scope("decoder",reuse=reuse):
             # latent -> conv
@@ -97,7 +90,7 @@ class vae_cnn:
             net = tf.layers.conv2d(net, 1, self.in_size[2], padding='same', activation=tf.nn.sigmoid)
             net = tf.clip_by_value(net, 1e-6,1-1e-6)
 
-        return net
+        return tf.identity(net, name=name)
 
     def make_loss(self, x_true, x_recons, mu, sig):
         recons = tf.reduce_sum(x_true*tf.log(x_recons)
@@ -115,6 +108,20 @@ class vae_cnn:
         opt_op = tf.train.AdamOptimizer(self.lr).minimize(loss)
         opt_and_loss = tf.tuple([loss], control_inputs=[opt_op]) # Evaluating loss => evaluating optimization
 
-        return loss, opt_and_loss
+        return tf.identity(loss,'loss_given_x'), tf.identity(opt_and_loss, 'opt_loss_given_x')
+
+
+    def save(self, sess):
+        save_dir = os.path.join('saves',self.name)
+        if os.path.exists(save_dir):
+            print("\nDeleting {}!!\n".format(save_dir))
+            import shutil
+            shutil.rmtree(save_dir)
+        tf.saved_model.simple_save(sess, save_dir,
+                inputs  = {"x_in": self.x_in, "z_in": self.z_in },
+                outputs = {"encode_given_x":self.encode_given_x,
+                           "loss_given_x":self.loss_given_x,
+                           "decode_given_x":self.decode_given_x,
+                           "decode_given_z":self.decode_given_z })
 
 

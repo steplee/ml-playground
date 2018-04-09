@@ -9,14 +9,12 @@ import matplotlib.font_manager as mfm
 font_path = "/data/SourceHanSerif-Regular.otf"
 prop = mfm.FontProperties(fname=font_path)
 
-# Returns a batch sampler function
-def gen_char_gen(n, size):
-
+def gen_chars(n,size):
     start = 20272
     chars = [str(chr(q)) for q in range(start,start+n)]
 
     ims = np.zeros([n,size,size,1])
-    font_size = 130
+    font_size = 170
 
     plt.xticks([])
     plt.yticks([])
@@ -37,15 +35,34 @@ def gen_char_gen(n, size):
     plt.close(fig)
     del fig
 
-    def gene(batch_size):
-        inds = np.random.choice((range(n)), batch_size)
-        x = ims[inds]
-        #f,a=plt.subplots(figsize=(5,5))
-        #a.imshow(x[0,...,0])
-        #plt.show()
-        return x,inds
+    return ims
 
-    return gene
+# Returns a tf.dataset
+def gen_dataset(n, size, batch_size):
+    import tensorflow as tf
+
+    xs = gen_chars(n, size)
+    ys = list(range(len(xs)))
+
+    def xform(x):
+        box = tf.concat([tf.random_uniform([2],.0,.2), tf.random_uniform([2],.7,1.0)], 0)
+        box = tf.expand_dims(box,0)
+        box = tf.tile(box, [batch_size,1])
+        binds = tf.constant(list(range(batch_size)))
+        x = tf.image.crop_and_resize(x, box, binds, (x.shape[1:3]))
+        x = tf.contrib.image.rotate(x, tf.random_uniform([batch_size], -.5,.5))
+        x = tf.contrib.image.translate(x, tf.random_uniform([batch_size,2], -20.,20.))
+        return x
+
+
+    ten = tf.data.Dataset.from_tensor_slices(xs)
+    ten = ten.shuffle(buffer_size=n)
+    ten = ten.batch(batch_size)
+    ten = ten.map(map_func=xform) # yes, this is single-threaded
+    ten = ten.repeat()
+
+    return ten
+
 
 def test(n=100):
     gen = gen_char_gen(n, 100)

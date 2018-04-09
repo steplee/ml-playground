@@ -12,12 +12,12 @@ import vae
 # Train params
 debug_print = False
 batch_size = 32
-default_batches = 10000
+default_batches = 20000
 show_every = -1
 
 # Data params
 classes = 100
-char_size = 60
+char_size = 80
 
 # Model params
 the_latent_size = 49*4
@@ -28,7 +28,7 @@ tf.app.flags.DEFINE_string("name", "vae", "Name of model. Used for saving files,
 flags = tf.app.flags.FLAGS
 
 
-def test_vae(sess=None):
+def run(sess=None):
     print(" - Start.")
 
     im_size = [char_size,char_size,1]
@@ -50,13 +50,17 @@ def test_vae(sess=None):
 
     # Train loop
     for batch in range(flags.batches):
-        loss,xh = sess.run([net.opt_loss_given_x, net.decode_given_x])
-        loss = loss[0]
+        opt_loss,xh = sess.run([net.opt_loss_given_x, net.decode_given_x])
+        opt_loss = opt_loss[0]
+
+        if batch % 10 == 0:
+            print("%5d: %.3f"%(batch,opt_loss))
+
 
     print(" - Done, saving to saves/{}".format(flags.name))
 
     net.save(sess)
 
-if __name__=='__main__' and 'run' in sys.argv:
-    test_vae()
+if __name__=='__main__':
+    run()
 

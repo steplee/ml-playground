@@ -7,13 +7,9 @@ import sys,random,os
 VAE
 '''
 
-
-
 # -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  - 
 #                      MODEL 
 # -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  - 
-
-
 
 '''
 Endpoints:
@@ -21,7 +17,9 @@ Endpoints:
     decode_given_z
     decode_given_x
     loss_given_x
-    opt_loss_given_x (which returns loss)
+    opt_loss_given_x (which returns loss and runs optim op)
+
+`x_in` should be a tensor, probably from a tf.data.Dataset.
 
 '''
 class vae_cnn:

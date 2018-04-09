@@ -12,21 +12,13 @@ import vae
 
 
 # Train params
-debug_print = False
 batch_size = 32
-default_batches = 9000
-show_every = -1
 
 # Data params
 classes = 100
-char_size = 60
-
-# Model params
-the_latent_size = 49*4
-the_conv_channels = [16,16]
+char_size = 80
 
 
-tf.app.flags.DEFINE_integer("batches", default_batches, "Number of batches to train")
 tf.app.flags.DEFINE_string("name", "vae", "Name of model. Used for saving files, etc.")
 flags = tf.app.flags.FLAGS
 
@@ -45,7 +37,7 @@ def test_saved_vae(name=flags.name):
 
 
 
-def test_vae(sess=None):
+def run(sess=None):
     print(" - Start.")
 
     im_size = [char_size,char_size,1]
@@ -85,11 +77,9 @@ def test_vae(sess=None):
     zs = sess.run(encode_given_x, feed_dict={x_in:bx})
 
     # This could be completely batched, but speed isn't a problem rn
-    for j in range(N-1):
-        if j<=N//2:
+    for j in range(N//2-1):
+        if j<=N//4:
             za,zb = zs[j],zs[j+1]
-            if j==N//2:
-                ps.append(np.ones_like(ps[-1])*.01) # put a break
         else:
             r = np.random.uniform(size=zs[0].shape) * 3.0
             za,zb = zs[j],zs[j] + r*r
@@ -108,8 +98,8 @@ def test_vae(sess=None):
     plt.figure(figsize=(11,6))
     #plt.imshow(pp,cmap='gray')
     plt.imsave('{}-interpolation.png'.format(flags.name),pp,cmap='gray')
-    print(" - Done, created {}-interpolation.png".format(flags.name))
+    print(" - Done, created {}-interpolation.jpg".format(flags.name))
 
-if __name__=='__main__' and 'run' in sys.argv:
-    test_vae()
+if __name__=='__main__':
+    run()
 

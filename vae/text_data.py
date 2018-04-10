@@ -9,8 +9,7 @@ import matplotlib.font_manager as mfm
 font_path = "/data/SourceHanSerif-Regular.otf"
 prop = mfm.FontProperties(fname=font_path)
 
-def gen_chars(n,size):
-    start = 20272
+def gen_chars(n,size,start=20272):
     chars = [str(chr(q)) for q in range(start,start+n)]
 
     ims = np.zeros([n,size,size,1])

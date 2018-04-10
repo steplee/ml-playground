@@ -26,10 +26,11 @@ class vae_cnn:
     def __init__(self,
             x_in,
             latent_size,
-            conv_channels=[16,16],
+            conv_channels,
             lr=.003,
             debug_print=False,
-            name='vae'):
+            name='vae',
+            use_batch_norm=True):
 
         self.x_in = x_in
         self.in_size = list(map(int,x_in.shape[1:]))
@@ -38,6 +39,7 @@ class vae_cnn:
         self.latent_size = latent_size
         self.debug_print = debug_print
         self.name = name
+        self.use_batch_norm = use_batch_norm
 
         #self.x_in = tf.placeholder(tf.float32, shape=[None,*in_size], name='x_in')
 
@@ -58,9 +60,14 @@ class vae_cnn:
         layers = self.conv_channels
         with tf.variable_scope('encoder',reuse=reuse):
             net = x 
-            for i,chans in enumerate(layers):
+            for chans,pool in (layers):
                 net = tf.layers.conv2d(net, chans, 3, padding='same', activation=tf.nn.relu)
-                net = tf.layers.max_pooling2d(net, 2,2)
+                if pool:
+                    net = tf.layers.max_pooling2d(net, 2,2)
+
+            # BATCH NORM
+            if self.use_batch_norm:
+                net = tf.layers.batch_normalization(net)
 
             conv_0_size = net.shape[1:]
             flat_size = np.prod(conv_0_size)
@@ -82,10 +89,11 @@ class vae_cnn:
             net = tf.layers.dense(z, flat_size)
             net = tf.reshape(net, ([-1, *self.conv_0_size]))
 
-            for i,chans in enumerate(layers[::-1]):
-                net = tf.layers.conv2d_transpose(net, chans, 4, strides=2, padding='same', activation=tf.nn.relu)
+            for chans,pool in layers:
+                stride = 2 if pool else 1
+                net = tf.layers.conv2d_transpose(net, chans, 4, strides=stride, padding='same', activation=tf.nn.relu)
 
-            net = tf.layers.conv2d(net, 1, self.in_size[2], padding='same', activation=tf.nn.sigmoid)
+            net = tf.layers.conv2d(net, self.in_size[2], 1, padding='same', activation=tf.nn.sigmoid)
             net = tf.clip_by_value(net, 1e-6,1-1e-6)
 
         return tf.identity(net, name=name)

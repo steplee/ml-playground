@@ -16,10 +16,12 @@ batch_size = 32
 
 # Data params
 classes = 100
-char_size = 80
+char_size = 140
 
 
 tf.app.flags.DEFINE_string("name", "vae", "Name of model. Used for saving files, etc.")
+tf.app.flags.DEFINE_bool("gif", False, "Produce gif")
+tf.app.flags.DEFINE_bool("jpg", False, "Produce jpg")
 flags = tf.app.flags.FLAGS
 
 
@@ -38,6 +40,10 @@ def test_saved_vae(name=flags.name):
 
 
 def run(sess=None):
+    if flags.gif==False and flags.jpg==False:
+        print(" - Make either gif or jpg with --gif/jpg")
+        return
+
     print(" - Start.")
 
     im_size = [char_size,char_size,1]
@@ -70,15 +76,16 @@ def run(sess=None):
     '''
 
     N = batch_size
-    bx = text_data.gen_chars(N, char_size)
+    bx = text_data.gen_chars(N, char_size, 20272+15)
 
     ps = []
+    all_imgs = []
 
     zs = sess.run(encode_given_x, feed_dict={x_in:bx})
 
     # This could be completely batched, but speed isn't a problem rn
     for j in range(N//2-1):
-        if j<=N//4:
+        if j<N//2-2:
             za,zb = zs[j],zs[j+1]
         else:
             r = np.random.uniform(size=zs[0].shape) * 3.0
@@ -89,16 +96,46 @@ def run(sess=None):
 
         xhs = list(sess.run(decode_given_z, feed_dict={z_in:cs})[...,0])
 
-        p = (np.hstack(xhs))
-        p -= np.min(p)
-        p /= np.max(p)
-        ps.append(p)
+        if flags.gif:
+            all_imgs.extend(xhs)
+        if flags.jpg:
+            p = (np.hstack(xhs))
+            p -= np.min(p)
+            p /= np.max(p)
+            ps.append(p)
 
-    pp = np.vstack(ps)
-    plt.figure(figsize=(11,6))
-    #plt.imshow(pp,cmap='gray')
-    plt.imsave('{}-interpolation.png'.format(flags.name),pp,cmap='gray')
-    print(" - Done, created {}-interpolation.jpg".format(flags.name))
+    if flags.jpg:
+        print(" - Producing .jpg ")
+        pp = np.vstack(ps)
+        plt.figure(figsize=(11,6))
+        #plt.imshow(pp,cmap='gray')
+        plt.imsave('{}-interpolation.jpg'.format(flags.name),pp,cmap='gray')
+        print(" - Done, created {}-interpolation.jpg".format(flags.name))
+
+    if flags.gif:
+        produce_gif(all_imgs)
+
+
+def produce_gif(list_of_imgs):
+    imgs = list_of_imgs
+    print(" - Producing animated .gif ")
+
+    import matplotlib.animation as animation
+
+    fig = plt.figure()
+    plt.axis('off')
+    plt.tight_layout()
+
+    im = plt.imshow(imgs[0], cmap='gray')
+
+    def updatefig(j):
+        im.set_array(imgs[j])
+        return [im]
+
+    anim = animation.FuncAnimation(fig, updatefig,frames=range(len(imgs)), interval=30, blit=True)
+
+    anim.save('{}-interpolated.gif'.format(flags.name), dpi=80, writer='imagemagick')
+
 
 if __name__=='__main__':
     run()

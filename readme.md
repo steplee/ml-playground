@@ -1,2 +1,2 @@
 
-![alt text](./vae/vae-interpolation.png)
+![alt text](./vae/vae-interpolated.gif)
